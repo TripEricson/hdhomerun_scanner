@@ -1,0 +1,17 @@
+# Compiled binary (publish it as a GitHub Release instead)
+hdhomerun_scanner
+
+# SiliconDust's library is fetched separately (see README)
+libhdhomerun/
+
+# Build leftovers
+*.o
+*.a
+
+# Capture files the scanner writes before FTP upload
+*.ts
+*.pcap
+*.dbg
+
+# Personal config copies (keep scanner.conf as the example)
+*.local.conf
