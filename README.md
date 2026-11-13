@@ -97,6 +97,7 @@ The rabbitears.info server expects submissions to look exactly like the Perl scr
 
 - Based on the Perl `scan_tuner.pl` by kb8u
 - `libhdhomerun` © Silicondust USA Inc., distributed under the GNU LGPL
+- Developed with assistance from Claude (Anthropic)
 
 ## License
 
