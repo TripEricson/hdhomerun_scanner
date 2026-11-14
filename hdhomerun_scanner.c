@@ -1221,16 +1221,9 @@ struct http_response submit_results(const char *url, json_object *scan_data, boo
     size_t json_len = strlen(json_string);
 
     if (debug) {
+        /* The full pretty-printed payload is already dumped by main()
+         * ("JSON to submit:") just before this call. */
         printf("Original JSON length: %zu bytes\n", json_len);
-        /* FIX: print the complete payload (pretty-printed for reading,
-         * like the Perl's debug output). The bytes actually submitted are
-         * still the compact form above. Note: json-c reuses its internal
-         * string buffer per object, so json_string is re-fetched after. */
-        printf("JSON (full, pretty-printed for display; sent compact):\n%s\n",
-               json_object_to_json_string_ext(scan_data, JSON_C_TO_STRING_PRETTY |
-                                                         JSON_C_TO_STRING_NOSLASHESCAPE));
-        json_string = json_object_to_json_string_ext(scan_data, JSON_C_TO_STRING_PLAIN);
-        json_len = strlen(json_string);
     }
 
     // Compress the JSON data
