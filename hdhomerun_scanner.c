@@ -1,24 +1,17 @@
 /*
-   * hdhomerun_scanner.c
-    *
-    * C-based scanner for HDHomeRun devices that reports to rabbitears.info
-    * Converted from scan_tuner.pl with enhancements for ATSC 3.0
-    *
-    * Copyright (C) 2026 - Mark J. Colombo
-    *
-    * This program is free software: you can redistribute it and/or modify
-    * it under the terms of the GNU General Public License as published by
-    * the Free Software Foundation, either version 3 of the License, or
-    * (at your option) any later version.
-    *
-    * This program is distributed in the hope that it will be useful,
-    * but WITHOUT ANY WARRANTY; without even the implied warranty of
-    * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    * GNU General Public License for more details.
-    *
-    * You should have received a copy of the GNU General Public License
-    * along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
+ * hdhomerun_scanner.c
+ *
+ * C-based scanner for HDHomeRun devices that reports to rabbitears.info
+ * Converted from scan_tuner.pl with enhancements for ATSC 3.0
+ *
+ * Copyright (C) 2025 - Mark J. Colombo
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,6 +55,10 @@
 // Configuration structure
 struct scanner_config {
     char tuner_id[16];
+    /* FIX: actual device ID discovered at connect time when tuner_id is the
+     * FFFFFFFF wildcard. Used for user_id only (as the Perl did); tuning
+     * still uses tuner_id so a swapped device is picked up next loop. */
+    char resolved_tuner_id[16];
     int tuner_index;
     unsigned int min_channel;
     unsigned int max_channel;
@@ -1013,9 +1010,13 @@ json_object *create_scan_json(struct scanner_config *config,
     json_object *scan = json_object_new_object();
     
     // Create user ID
+    /* FIX: use the real device ID (like the Perl's discover step) rather
+     * than a literal "FFFFFFFF" wildcard. */
+    const char *id_for_user = (config->resolved_tuner_id[0] != '\0')
+                              ? config->resolved_tuner_id : config->tuner_id;
     char user_id[64];
-    snprintf(user_id, sizeof(user_id), "TunerID_%s_tuner%d", 
-             config->tuner_id, config->tuner_index);
+    snprintf(user_id, sizeof(user_id), "TunerID_%s_tuner%d",
+             id_for_user, config->tuner_index);
     json_object *user_id_obj = json_object_new_string(user_id);
     json_object_object_add(scan, "user_id", user_id_obj);
     
@@ -1221,7 +1222,15 @@ struct http_response submit_results(const char *url, json_object *scan_data, boo
 
     if (debug) {
         printf("Original JSON length: %zu bytes\n", json_len);
-        printf("JSON preview (first 500 chars): %.500s\n", json_string);
+        /* FIX: print the complete payload (pretty-printed for reading,
+         * like the Perl's debug output). The bytes actually submitted are
+         * still the compact form above. Note: json-c reuses its internal
+         * string buffer per object, so json_string is re-fetched after. */
+        printf("JSON (full, pretty-printed for display; sent compact):\n%s\n",
+               json_object_to_json_string_ext(scan_data, JSON_C_TO_STRING_PRETTY |
+                                                         JSON_C_TO_STRING_NOSLASHESCAPE));
+        json_string = json_object_to_json_string_ext(scan_data, JSON_C_TO_STRING_PLAIN);
+        json_len = strlen(json_string);
     }
 
     // Compress the JSON data
@@ -2145,9 +2154,37 @@ int main(int argc, char *argv[]) {
         }
         
         hdhomerun_device_set_tuner(hd, config.tuner_index);
-        
+
+        /* FIX: resolve the wildcard to the actual device ID for user_id.
+         * hdhomerun_control_get_device_id() connects (discovering the device
+         * if needed) and returns the real ID, or 0 on failure. */
+        config.resolved_tuner_id[0] = '\0';
+        if (strcasecmp(config.tuner_id, "FFFFFFFF") == 0) {
+            uint32_t actual_id = hdhomerun_control_get_device_id(
+                                     hdhomerun_device_get_control_sock(hd));
+            if (actual_id != 0 && actual_id != 0xFFFFFFFF) {
+                snprintf(config.resolved_tuner_id, sizeof(config.resolved_tuner_id),
+                         "%08X", (unsigned int)actual_id);
+                if (config.debug) {
+                    printf("Discovered device ID %s\n", config.resolved_tuner_id);
+                }
+            } else {
+                printf("Warning: could not resolve device ID; user_id will use %s\n",
+                       config.tuner_id);
+            }
+        } else {
+            /* Explicit ID: normalize to uppercase to match the Perl's uc() */
+            size_t k;
+            for (k = 0; k + 1 < sizeof(config.resolved_tuner_id) && config.tuner_id[k]; k++) {
+                config.resolved_tuner_id[k] = (char)toupper((unsigned char)config.tuner_id[k]);
+            }
+            config.resolved_tuner_id[k] = '\0';
+        }
+
         if (config.debug) {
-            printf("Connected to tuner %s-%d\n", config.tuner_id, config.tuner_index);
+            printf("Connected to tuner %s-%d\n",
+                   config.resolved_tuner_id[0] ? config.resolved_tuner_id : config.tuner_id,
+                   config.tuner_index);
         }
         
         if (!hd) {
@@ -2399,6 +2436,10 @@ int main(int argc, char *argv[]) {
                 
                 if (result->tsid != -999) {
                     printf(", TSID: %ld", result->tsid);
+                }
+                /* FIX: show the callsign override being sent, if any */
+                if (result->reporter_callsign[0] != '\0') {
+                    printf(", reporter_callsign: %s", result->reporter_callsign);
                 }
                 printf("\n");
             }
